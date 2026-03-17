@@ -204,10 +204,12 @@ window.onload = function init() {
 	// Set up viewport 
 	gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
 
-	// Set initial positions
+	// Set initial positions, velocities and rotation matrices
 	spheres.forEach(function(sphere, index) {
 		sphere.position = [5*(2*Math.random() - 1), 5*(2*Math.random() - 1), 5*(2*Math.random() + 1)];
+		sphere.velocity = [4*(2*Math.random()-1), 4*(2*Math.random()-1), 0.0];
 		sphere.rotation = [Math.random()*360, Math.random()*360, Math.random()*360];
+		sphere.rotationMatrix = mat4(); // 2.5 ROTACIÓN: matriz de rotación acumulada
 	});
 
 	// 2.3 CÁMARA Y MOVIMIENTO: Inicializamos y definimos el hecho de que va a haber triggers para las teclas
@@ -254,6 +256,11 @@ function update(dt) {
 	dt = dt / 1000.0;
 	spheres.forEach(function(sphere, index) {
 
+		// 2.4 COLISIÓN ESFERA-ESFERA: Respawn de esferas de color que salen del plano
+		if (index > 0 && sphere.position[2] < -10) {
+			respawnSphere(sphere);
+		}
+
 		// 2.1 GRAVEDAD: Definimos aceleración
 		let acceleration = [0.0, 0.0, gravity];
 
@@ -262,7 +269,7 @@ function update(dt) {
 
 			// En caso de que se salga del plano, lo recolocamos en la posición inicial
 			if (sphere.position[2] < -10) {
-				sphere.position = [0.0, 0.0, 0.0];
+				sphere.position = [0.0, 0.0, sphere.radius / 2];
 				sphere.velocity = [0.0, 0.0, 0.0];
 			}
 
@@ -280,9 +287,26 @@ function update(dt) {
 			
 		}
 
-		// Update state (rotation) of the sphere
-		sphere.rotation[0] = (sphere.rotation[0] + 60*dt) % 360;
-		sphere.rotation[1] = (sphere.rotation[1] + 60*dt) % 360;
+		// 2.5 ROTACIÓN: basada en física
+		let onGround = (sphere.position[2] <= sphere.radius / 2 + 0.01);
+
+		if (onGround) {
+			// Rodadura sobre el plano: eje perpendicular a la dirección de movimiento XY
+			let vx = sphere.velocity[0];
+			let vy = sphere.velocity[1];
+			let speed = Math.sqrt(vx*vx + vy*vy);
+			if (speed > 0.001) {
+				// cross(vel_dir, Z) = (vy/speed, -vx/speed, 0)
+				let rollAxis = vec3(vy / speed, -vx / speed, 0.0);
+				// θ = v / (2π * r) vuelta completa → en grados
+				let angleDeg = speed / (2 * Math.PI * sphere.radius) * 360 * dt;
+				sphere.rotationMatrix = mult(rotate(angleDeg, rollAxis), sphere.rotationMatrix);
+			}
+		} else {
+			// En el aire: rotación libre constante acumulada en la misma matriz
+			sphere.rotationMatrix = mult(rotate(60*dt, vec3(1,0,0)), sphere.rotationMatrix);
+			sphere.rotationMatrix = mult(rotate(60*dt, vec3(0,1,0)), sphere.rotationMatrix);
+		}
 
 		// 2.1 GRAVEDAD: Usamos Euler simplético
 		// v_(t+1) = v_t + a * dt
@@ -329,6 +353,9 @@ function update(dt) {
 			sphere.velocity[0] = sphere.velocity[0] - 2 * v_parallel[0];
 			sphere.velocity[1] = sphere.velocity[1] - 2 * v_parallel[1];
 			sphere.velocity[2] = sphere.velocity[2] - 2 * v_parallel[2];
+
+			// 2.2 REBOTES: Corregimos posición Z para que no quede bajo el plano
+			sphere.position[2] = sphere.radius / 2;
 		} else {
 			// 2.1 GRAVEDAD: Actualizamos posicion
 			sphere.position[0] += sphere.velocity[0] * dt;
@@ -340,14 +367,8 @@ function update(dt) {
 
 		// Update graphical representation
 		let transform = scale(sphere.radius, sphere.radius, sphere.radius);
-
-		let ejeX = vec3(1.0, 0.0, 0.0);
-		transform = mult(rotate(sphere.rotation[0], ejeX), transform);
-		let ejeY = vec3(0.0, 1.0, 0.0);
-		transform = mult(rotate(sphere.rotation[1], ejeY), transform);
-		let ejeZ = vec3(0.0, 0.0, 1.0);
-		transform = mult(rotate(sphere.rotation[2], ejeZ), transform);
-
+		// 2.5 ROTACIÓN: siempre usar la matriz acumulada (evita parpadeos al cambiar sistema)
+		transform = mult(sphere.rotationMatrix, transform);
 		transform = mult(translate(sphere.position[0], sphere.position[1], sphere.position[2]), transform);
 
 		// Skip the plane
@@ -355,6 +376,94 @@ function update(dt) {
 
 		objectsToDraw[index].uniforms.u_model = transform;
 	});
+
+	// 2.4 COLISIÓN ESFERA-ESFERA: Resolver colisiones entre todas las esferas
+	resolveSphereCollisions();
+}
+
+//----------------------------------------------------------------------------
+// 2.4 Sphere-sphere collision functions
+//----------------------------------------------------------------------------
+
+function resolveSphereCollisions() {
+	for (let i = 0; i < spheres.length; i++) {
+		for (let j = i + 1; j < spheres.length; j++) {
+			let a = spheres[i];
+			let b = spheres[j];
+
+			let dx = b.position[0] - a.position[0];
+			let dy = b.position[1] - a.position[1];
+			let dz = b.position[2] - a.position[2];
+			let dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
+			let minDist = a.radius + b.radius;
+
+			if (dist < minDist && dist > 0.0001) {
+				// Normal de colisión (de a hacia b)
+				let nx = dx / dist;
+				let ny = dy / dist;
+				let nz = dz / dist;
+
+				// Velocidad relativa proyectada sobre la normal
+				let vRel = (a.velocity[0] - b.velocity[0]) * nx
+				         + (a.velocity[1] - b.velocity[1]) * ny
+				         + (a.velocity[2] - b.velocity[2]) * nz;
+
+				// Solo resolver si se están aproximando
+				if (vRel > 0) {
+					// Choque elástico masas iguales: intercambiar componente normal
+					a.velocity[0] -= vRel * nx;
+					a.velocity[1] -= vRel * ny;
+					a.velocity[2] -= vRel * nz;
+					b.velocity[0] += vRel * nx;
+					b.velocity[1] += vRel * ny;
+					b.velocity[2] += vRel * nz;
+				}
+
+				// Corrección de penetración: separar las esferas
+				let overlap = (minDist - dist) / 2;
+				a.position[0] -= overlap * nx;
+				a.position[1] -= overlap * ny;
+				a.position[2] -= overlap * nz;
+				b.position[0] += overlap * nx;
+				b.position[1] += overlap * ny;
+				b.position[2] += overlap * nz;
+			}
+		}
+	}
+}
+
+function respawnSphere(sphere) {
+	// Intentar encontrar una posición libre (hasta 10 intentos)
+	for (let intento = 0; intento < 10; intento++) {
+		let px = 8 * (2 * Math.random() - 1);
+		let py = 8 * (2 * Math.random() - 1);
+		let pz = 5 + 10 * Math.random();
+
+		// Comprobar que no solapa ninguna otra esfera
+		let libre = true;
+		for (let k = 0; k < spheres.length; k++) {
+			if (spheres[k] === sphere) continue;
+			let dx = spheres[k].position[0] - px;
+			let dy = spheres[k].position[1] - py;
+			let dz = spheres[k].position[2] - pz;
+			let dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
+			if (dist < sphere.radius + spheres[k].radius) {
+				libre = false;
+				break;
+			}
+		}
+
+		if (libre) {
+			sphere.position = [px, py, pz];
+			sphere.velocity = [4*(2*Math.random()-1), 4*(2*Math.random()-1), 0.0];
+			sphere.rotationMatrix = mat4();
+			return;
+		}
+	}
+	// Si no se encontró posición libre, spawnar arriba en el centro
+	sphere.position = [0.0, 0.0, 10.0];
+	sphere.velocity = [4*(2*Math.random()-1), 4*(2*Math.random()-1), 0.0];
+	sphere.rotationMatrix = mat4();
 }
 
 //----------------------------------------------------------------------------
