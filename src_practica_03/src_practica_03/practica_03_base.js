@@ -160,6 +160,11 @@ var spheres = [
 	},
 ]
 
+var plane = {
+	position:	[0, 0, 0],
+	dimensions: [20, 20, 0],
+}
+
 //----------------------------------------------------------------------------
 // Initialization function
 //----------------------------------------------------------------------------
@@ -257,9 +262,9 @@ function update(dt) {
 	spheres.forEach(function(sphere, index) {
 
 		// 2.4 COLISIÓN ESFERA-ESFERA: Respawn de esferas de color que salen del plano
-		if (index > 0 && sphere.position[2] < -10) {
-			respawnSphere(sphere);
-		}
+		// if (index > 0 && sphere.position[2] < -10) {
+		// 	respawnSphere(sphere);
+		// }
 
 		// 2.1 GRAVEDAD: Definimos aceleración
 		let acceleration = [0.0, 0.0, gravity];
@@ -331,31 +336,47 @@ function update(dt) {
 		}
 		
 		// Detectar colisión con el plano
+		let nextX = sphere.position[0] + sphere.velocity[0] * dt;
+		let nextY = sphere.position[1] + sphere.velocity[1] * dt;
 		let nextZ = sphere.position[2] + sphere.velocity[2] * dt;
+
 		// 2.1 GRAVEDAD: Para que las bolas no se caigan, ponemos un suelo simple
 		if (nextZ <= sphere.radius/2) {
-			// 2.2 REBOTES: Definimos vector normal al suelo
-			let n = [0.0, 0.0, 1.0];
-			
-			// 2.2 REBOTES: Calculamos la componente paralela al plano
-			// v_|| = (n * v) * n
-			// Con esto calculamos dot --> producto escalar
-			// 					   v_parallel --> componente paralela
-			
-			let dot = sphere.velocity[0]*n[0] + sphere.velocity[1]*n[1] + sphere.velocity[2]*n[2];
+			//2.3/2.4 Comprobar si cae fuera del plano
+			if (nextX < plane.position[0] - plane.dimensions[0]/2
+				|| nextX > plane.position[0] + plane.dimensions[0]/2
+				|| nextY < plane.position[1] - plane.dimensions[1]/2
+				|| nextY > plane.position[1] + plane.dimensions[1]/2
+			) {
+				if (index == 0) {
+					respawnMainSphere()
+				} else {
+					respawnSphere(sphere)
+				}
+			} else {
+				// 2.2 REBOTES: Definimos vector normal al suelo
+				let n = [0.0, 0.0, 1.0];
+				
+				// 2.2 REBOTES: Calculamos la componente paralela al plano
+				// v_|| = (n * v) * n
+				// Con esto calculamos dot --> producto escalar
+				// 					   v_parallel --> componente paralela
+				
+				let dot = sphere.velocity[0]*n[0] + sphere.velocity[1]*n[1] + sphere.velocity[2]*n[2];
 
-			let v_parallel = [dot * n[0], dot * n[1], dot * n[2]];
+				let v_parallel = [dot * n[0], dot * n[1], dot * n[2]];
 
-			// 2.2 REBOTES: Buscamos un choque perfectamente elástico, es decir, no se pierde energía cinética en la colisión de partículas (nuestras esferas)
-			// Seguimos la formula: v' = v - 2v_||
+				// 2.2 REBOTES: Buscamos un choque perfectamente elástico, es decir, no se pierde energía cinética en la colisión de partículas (nuestras esferas)
+				// Seguimos la formula: v' = v - 2v_||
 
-			// Si quisieramos que simplemente fuera un choque elástico, podemos añadir una constante sobre la velocidad resultante que reduzca el rebote
-			sphere.velocity[0] = sphere.velocity[0] - 2 * v_parallel[0];
-			sphere.velocity[1] = sphere.velocity[1] - 2 * v_parallel[1];
-			sphere.velocity[2] = sphere.velocity[2] - 2 * v_parallel[2];
+				// Si quisieramos que simplemente fuera un choque elástico, podemos añadir una constante sobre la velocidad resultante que reduzca el rebote
+				sphere.velocity[0] = sphere.velocity[0] - 2 * v_parallel[0];
+				sphere.velocity[1] = sphere.velocity[1] - 2 * v_parallel[1];
+				sphere.velocity[2] = sphere.velocity[2] - 2 * v_parallel[2];
 
-			// 2.2 REBOTES: Corregimos posición Z para que no quede bajo el plano
-			sphere.position[2] = sphere.radius / 2;
+				// 2.2 REBOTES: Corregimos posición Z para que no quede bajo el plano
+				sphere.position[2] = sphere.radius / 2;
+			}
 		} else {
 			// 2.1 GRAVEDAD: Actualizamos posicion
 			sphere.position[0] += sphere.velocity[0] * dt;
@@ -430,6 +451,12 @@ function resolveSphereCollisions() {
 			}
 		}
 	}
+}
+
+function respawnMainSphere() {
+	spheres[0].position = [0.0, 0.0, 1.5];
+	spheres[0].velocity = [4*(2*Math.random()-1), 4*(2*Math.random()-1), 0.0];
+	spheres[0].rotationMatrix = mat4();
 }
 
 function respawnSphere(sphere) {
