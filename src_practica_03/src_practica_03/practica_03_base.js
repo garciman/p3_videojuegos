@@ -256,6 +256,9 @@ function tick(nowish) {
 // 2.1. GRAVEDAD, definimos constante gravedad
 var gravity = -9.8;
 
+//2.6 FRICCIÓN, definimos constante mu
+var mu = 0.5
+
 function update(dt) {
 	// Update state
 	dt = dt / 1000.0;
@@ -292,14 +295,31 @@ function update(dt) {
 			
 		}
 
-		// 2.5 ROTACIÓN: basada en física
+		// 2.5 ROTACIÓN: basada en física y 2.6 FRICCIÓN
 		let onGround = (sphere.position[2] <= sphere.radius / 2 + 0.01);
 
 		if (onGround) {
-			// Rodadura sobre el plano: eje perpendicular a la dirección de movimiento XY
 			let vx = sphere.velocity[0];
 			let vy = sphere.velocity[1];
 			let speed = Math.sqrt(vx*vx + vy*vy);
+
+			//Friccion en el eje paralelo al plano
+			if (speed > 0.001) {
+				let friction = mu * Math.abs(gravity);
+
+				let fx = -vx / speed * friction;
+				let fy = -vy / speed * friction;
+
+				sphere.velocity[0] += fx * dt;
+				sphere.velocity[1] += fy * dt;
+
+				//Recalcular velocidad tras fricción
+				vx = sphere.velocity[0];
+				yv = sphere.velocity[1];
+				speed = Math.sqrt(vx*vx + vy*vy);
+			}
+
+			// Rodadura sobre el plano: eje perpendicular a la dirección de movimiento XY
 			if (speed > 0.001) {
 				// cross(vel_dir, Z) = (vy/speed, -vx/speed, 0)
 				let rollAxis = vec3(vy / speed, -vx / speed, 0.0);
@@ -307,6 +327,7 @@ function update(dt) {
 				let angleDeg = speed / (2 * Math.PI * sphere.radius) * 360 * dt;
 				sphere.rotationMatrix = mult(rotate(angleDeg, rollAxis), sphere.rotationMatrix);
 			}
+
 		} else {
 			// En el aire: rotación libre constante acumulada en la misma matriz
 			sphere.rotationMatrix = mult(rotate(60*dt, vec3(1,0,0)), sphere.rotationMatrix);
